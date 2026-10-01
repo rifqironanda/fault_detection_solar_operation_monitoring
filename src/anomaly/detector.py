@@ -24,55 +24,48 @@ def detect_anomalies(
     contamination: float,
     random_seed: int,
 ) -> pd.DataFrame:
-    """Detect unusual operating conditions independently per inverter."""
+    """Detect unusual daytime operating conditions per inverter.
 
+    Night/low-irradiance observations are excluded from model training
+    and are not labelled as ML anomalies.
+    """
     result = data.copy()
-
-    # Pastikan output memiliki kolom anomaly.
     result["is_anomaly"] = False
     result["anomaly_score"] = np.nan
 
-    # ---------------------------------------------------------
-    # Train one Isolation Forest for each inverter
-    # ---------------------------------------------------------
-    for inverter_id, group in result.groupby(
-        "inverter_id",
-        sort=False,
-    ):
+    for _, group in result.groupby("inverter_id", sort=False):
+        if "is_daylight" in group.columns:
+            operating = group[group["is_daylight"]].copy()
+        else:
+            operating = group[
+                group["irradiance_w_m2"] >= 200.0
+            ].copy()
 
-        # Ambil feature yang digunakan model.
+        if len(operating) < 10:
+            continue
+
         features = (
-            group[FEATURE_COLUMNS]
-            .replace(
-                [np.inf, -np.inf],
-                np.nan,
-            )
+            operating[FEATURE_COLUMNS]
+            .replace([np.inf, -np.inf], np.nan)
             .fillna(0.0)
         )
-
-        # Jangan melatih model jika data terlalu sedikit.
-        if len(features) < 10:
-            continue
 
         model = IsolationForest(
             contamination=contamination,
             random_state=random_seed,
-            n_estimators=200,
+            n_estimators=100,
         )
 
         prediction = model.fit_predict(features)
-
         anomaly_score = -model.score_samples(features)
 
-        # Gunakan index asli group sehingga hasil kembali
-        # ke inverter dan timestamp yang tepat.
         result.loc[
-            group.index,
+            operating.index,
             "is_anomaly",
         ] = prediction == -1
 
         result.loc[
-            group.index,
+            operating.index,
             "anomaly_score",
         ] = anomaly_score
 
