@@ -6,27 +6,18 @@ import pandas as pd
 
 from src.alerts.engine import generate_alerts
 from src.anomaly.detector import detect_anomalies
-from src.config.settings import (
-    DEFAULT_DATA_PATH,
-    MonitoringConfig,
-)
-from src.data.loader import load_pv_data
-from src.physics.baseline import (
-    add_performance_features,
-)
+from src.config.settings import DEFAULT_DATA_PATH, MonitoringConfig
+from src.data.loader import load_pv_data, prepare_pv_data
+from src.physics.baseline import add_performance_features
 
 
 def calculate_summary_metrics(
     data: pd.DataFrame,
     alerts: pd.DataFrame,
 ) -> dict[str, float | int]:
-
+    """Calculate dashboard-level monitoring metrics."""
     operational_alerts = int(
-        data["alert_level"]
-        .isin(
-            ["WARNING", "CRITICAL"]
-        )
-        .sum()
+        data["alert_level"].isin(["WARNING", "CRITICAL"]).sum()
     )
 
     duration_days = max(
@@ -38,88 +29,47 @@ def calculate_summary_metrics(
         1 / 24,
     )
 
+    valid_pr = data["performance_ratio"].dropna()
+
     return {
-        "records": int(
-            len(data)
-        ),
-
-        "inverters": int(
-            data["inverter_id"].nunique()
-        ),
-
-        "ml_anomalies": int(
-            data["is_anomaly"].sum()
-        ),
-
-        "total_alerts": int(
-            len(alerts)
-        ),
-
+        "records": int(len(data)),
+        "inverters": int(data["inverter_id"].nunique()),
+        "ml_anomalies": int(data["is_anomaly"].sum()),
+        "total_alerts": int(len(alerts)),
         "operational_alerts": operational_alerts,
-
         "alerts_per_day": round(
-            operational_alerts
-            / duration_days,
+            operational_alerts / duration_days,
             3,
         ),
-
         "mean_performance_ratio": round(
-            float(
-                data[
-                    "performance_ratio"
-                ].mean()
-            ),
+            float(valid_pr.mean()) if not valid_pr.empty else 0.0,
             4,
         ),
     }
 
 
 def run_monitoring_pipeline(
+    data: pd.DataFrame | None = None,
     data_path=DEFAULT_DATA_PATH,
     config: MonitoringConfig | None = None,
-) -> tuple[
-    pd.DataFrame,
-    pd.DataFrame,
-    dict,
-]:
+) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    """Run validation, physics, ML, alerting, and metrics."""
+    config = config or MonitoringConfig()
 
-    config = (
-        config
-        or MonitoringConfig()
-    )
+    if data is None:
+        data = load_pv_data(data_path)
+    else:
+        data = prepare_pv_data(data)
 
-    # 1. Load
-    data = load_pv_data(
-        data_path
-    )
+    data = add_performance_features(data, config)
 
-    # 2. Physics baseline
-    data = add_performance_features(
-        data,
-        config,
-    )
-
-    # 3. ML anomaly detection
     data = detect_anomalies(
         data,
         contamination=config.contamination,
         random_seed=config.random_seed,
     )
 
-    # 4. Alert generation
-    data, alerts = generate_alerts(
-        data,
-        config,
-    )
+    data, alerts = generate_alerts(data, config)
+    metrics = calculate_summary_metrics(data, alerts)
 
-    # 5. Metrics
-    metrics = calculate_summary_metrics(
-        data,
-        alerts,
-    )
-
-    return (
-        data,
-        alerts,
-        metrics,
-    )
+    return data, alerts, metrics
