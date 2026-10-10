@@ -15,7 +15,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.config.settings import MonitoringConfig
-from src.data.loader import REQUIRED_COLUMNS, load_pv_upload
+from src.data.loader import REQUIRED_COLUMNS, prepare_pv_data, normalize_pv_columns
 from src.pipeline.run_pipeline import run_monitoring_pipeline
 
 st.set_page_config(
@@ -172,16 +172,17 @@ def render_upload_panel() -> pd.DataFrame | None:
             "Required fields: timestamp, inverter_id, irradiance_w_m2, "
             "ambient_temp_c, power_kw, voltage_v, current_a."
         )
-        return None
+        st.stop()
 
     try:
         raw = pd.read_csv(io.BytesIO(uploaded.getvalue()))
     except Exception as exc:
         st.error(f"Unable to read CSV: {exc}")
-        return None
+        st.stop()
 
     st.sidebar.markdown("### Validation")
 
+    raw = normalize_pv_columns(raw)
     missing = sorted(REQUIRED_COLUMNS.difference(raw.columns))
     if missing:
         st.sidebar.error("Missing columns: " + ", ".join(missing))
@@ -197,7 +198,7 @@ def render_upload_panel() -> pd.DataFrame | None:
                 hide_index=True,
                 use_container_width=True,
             )
-        return None
+        st.stop()
 
     timestamps = pd.to_datetime(raw["timestamp"], errors="coerce")
     missing_values = int(raw[list(REQUIRED_COLUMNS)].isna().sum().sum())
@@ -228,7 +229,11 @@ def render_upload_panel() -> pd.DataFrame | None:
             hide_index=True,
         )
 
-    return load_pv_upload(uploaded)
+    try:
+        return prepare_pv_data(raw)
+    except ValueError as exc:
+        st.error(f"Invalid uploaded data: {exc}")
+        st.stop()
 
 
 def render_kpis(data: pd.DataFrame, alerts: pd.DataFrame) -> None:
@@ -339,6 +344,8 @@ def main() -> None:
 
     with e2:
         st.markdown("#### Electrical")
+        if "dc_power_kw" in inverter_data.columns:
+            st.caption("Power charts use AC output. Voltage, current, and electrical consistency use DC measurements.")
         electrical = inverter_data[
             [
                 "timestamp",
@@ -413,3 +420,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

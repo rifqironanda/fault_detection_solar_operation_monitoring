@@ -239,6 +239,12 @@ def generate_alerts(
     result["alert_reason"] = reasons
     result["alert_explanation"] = explanations
 
-    alerts = pd.DataFrame(alert_records)
+    alerts = pd.DataFrame(alert_records, columns=[
+        "alert_id", "timestamp", "inverter_id", "severity", "reason",
+        "explanation", "actual_power_kw", "expected_power_kw",
+        "performance_ratio", "irradiance_w_m2", "ambient_temp_c",
+        "voltage_v", "current_a", "electrical_power_estimate_kw",
+        "power_consistency_ratio", "anomaly_score",
+    ])
 
     return result, alerts

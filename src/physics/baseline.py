@@ -85,9 +85,15 @@ def add_performance_features(
         .replace(0, np.nan)
     )
 
+    # SCADA voltage/current are DC measurements: compare them with DC power.
+    consistency_power = (
+        pd.to_numeric(result["dc_power_kw"], errors="coerce")
+        if {"dc_power_kw", "dc_voltage_v", "dc_current_a"}.issubset(result.columns)
+        else result["power_kw"]
+    )
     result["power_consistency_ratio"] = (
-        result["power_kw"]
-        / electrical_denominator
+        consistency_power / electrical_denominator
     )
 
     return result
+
