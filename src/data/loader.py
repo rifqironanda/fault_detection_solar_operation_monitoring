@@ -29,8 +29,23 @@ NUMERIC_COLUMNS = [
 ]
 
 
+def normalize_pv_columns(data: pd.DataFrame) -> pd.DataFrame:
+    """Accept the repository SCADA schema while preserving AC/DC fields."""
+    result = data.copy()
+    aliases = {
+        "power_kw": "ac_power_kw",
+        "voltage_v": "dc_voltage_v",
+        "current_a": "dc_current_a",
+    }
+    for target, source in aliases.items():
+        if target not in result.columns and source in result.columns:
+            result[target] = result[source]
+    return result
+
+
 def validate_pv_dataframe(data: pd.DataFrame) -> dict:
     """Validate a PV measurement DataFrame without running the pipeline."""
+    data = normalize_pv_columns(data)
     missing = sorted(REQUIRED_COLUMNS.difference(data.columns))
 
     report = {
@@ -79,6 +94,7 @@ def validate_pv_dataframe(data: pd.DataFrame) -> dict:
 
 def prepare_pv_data(data: pd.DataFrame) -> pd.DataFrame:
     """Validate, clean, normalize, and sort PV measurements."""
+    data = normalize_pv_columns(data)
     report = validate_pv_dataframe(data)
 
     if report["missing_columns"]:
@@ -163,3 +179,4 @@ def load_pv_upload(file) -> pd.DataFrame:
     raw = file.getvalue()
     data = pd.read_csv(BytesIO(raw))
     return prepare_pv_data(data)
+

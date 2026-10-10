@@ -82,3 +82,33 @@ def test_normal_operation_creates_no_alert():
     ] == "NORMAL"
 
     assert len(alerts) == 0
+
+    assert "inverter_id" in alerts.columns
+
+
+def test_scada_columns_keep_detection_and_dc_consistency():
+    import numpy as np
+    from src.pipeline.run_pipeline import run_monitoring_pipeline
+
+    count = 40
+    dc_power = np.linspace(80.0, 100.0, count)
+    ac_power = dc_power * 0.95
+    ac_power[-1] = 5.0
+    raw = pd.DataFrame({
+        "timestamp": pd.date_range("2026-01-01 10:00", periods=count, freq="min"),
+        "inverter_id": ["INV-01"] * count,
+        "irradiance_w_m2": np.linspace(800.0, 1000.0, count),
+        "ambient_temp_c": [25.0] * count,
+        "ac_power_kw": ac_power,
+        "dc_power_kw": dc_power,
+        "dc_voltage_v": [500.0] * count,
+        "dc_current_a": dc_power * 2.0,
+    })
+    data, alerts, metrics = run_monitoring_pipeline(data=raw)
+    assert len(data) == count
+    assert data["power_kw"].equals(data["ac_power_kw"])
+    assert np.allclose(data["power_consistency_ratio"], 1.0)
+    assert data["anomaly_score"].notna().all()
+    assert metrics["ml_anomalies"] > 0
+    assert data.iloc[-1]["is_anomaly"]
+    assert not alerts.empty
